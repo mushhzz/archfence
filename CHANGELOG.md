@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Restructured into a small core, one extractor per language and one vertical slice per check,
+  with `archfence.yml` at the root so CI runs archfence on archfence. No behaviour or config change.
+- Release workflow tolerates re-runs of an already published version.
+
+
 ## 0.1.0
 
 First public release.

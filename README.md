@@ -13,7 +13,7 @@ writing one extractor (about 80 lines) that reports what a file *provides* and w
 ## Install
 
 ```bash
-pip install git+https://github.com/mushhzz/archfence@v0.1.0
+pip install archfence
 archfence warm               # fetch the tree-sitter grammars once (also what CI should cache)
 archfence init               # draft archfence.yml from the tree
 archfence scan               # check it

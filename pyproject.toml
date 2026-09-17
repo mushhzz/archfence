@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archfence"
-version = "0.1.0"
+version = "0.1.1"
 description = "Polyglot architecture linter: layer rules, vertical slices and API-contract-first checks across C#, Python, TypeScript, Dart and Rust from one YAML config."
 readme = "README.md"
 authors = [{ name = "Jake Uren", email = "mushhz@gmail.com" }]

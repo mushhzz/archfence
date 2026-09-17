@@ -28,5 +28,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: dist, path: dist/ }
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with: { skip-existing: true }   # a re-run of the same version must not fail the release
       - uses: softprops/action-gh-release@v2
         with: { files: dist/* }

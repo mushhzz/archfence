@@ -3,6 +3,6 @@
 Importing the package is the composition root: it loads the checks, which register their config
 parsers with core. Core itself never imports a check.
 """
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from . import checks as _checks  # noqa: E402,F401  (registration side effect)
