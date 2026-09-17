@@ -1,0 +1,24 @@
+# One config, several stacks. Roots are relative to this file.
+projects:
+  backend:
+    extends: clean-architecture-dotnet
+    ignore: ["**/Migrations/**", "tests/**"]
+    layers:
+      domain:         { paths: ["src/Shop.Domain/**"] }
+      application:    { paths: ["src/Shop.Application/**"] }
+      infrastructure: { paths: ["src/Shop.Infrastructure/**"] }
+      webapi:         { paths: ["src/Shop.WebApi/**"] }
+
+  web:
+    extends: flutter-clean-bloc
+    root: web
+    ignore: ["test/**"]
+
+  agent:
+    languages: [rust]
+    root: agent
+    no_cycles: warning
+    layers:
+      core:     { paths: ["src/{config,identity,schedule,state}.rs"], severity: warning, cannot_import: [ui, entry] }
+      ui:       { paths: ["src/{dialogs,tray}.rs"], cannot_import: [entry] }
+      entry:    { paths: ["src/main.rs"] }

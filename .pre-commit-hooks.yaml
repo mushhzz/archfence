@@ -1,0 +1,7 @@
+- id: archfence
+  name: archfence (architecture rules)
+  description: Check layer, slice and API-contract rules against archfence.yml
+  entry: archfence scan
+  language: python
+  pass_filenames: false
+  always_run: true

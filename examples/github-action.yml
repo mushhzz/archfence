@@ -1,0 +1,26 @@
+# Drop into .github/workflows/archfence.yml in the repository you want to lint.
+# Fails the job on error-severity violations and uploads SARIF so findings appear on the PR
+# under Security > Code scanning (needs `security-events: write`).
+name: archfence
+on: [pull_request, push]
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  archfence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # full history if contracts.openapi.history is on
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/tree-sitter-language-pack
+          key: tree-sitter-grammars-${{ runner.os }}
+      - run: pip install git+https://github.com/mushhzz/archfence@v0.1.0
+      - run: archfence warm
+      - run: archfence scan -f sarif -o archfence.sarif || true
+      - uses: github/codeql-action/upload-sarif@v3
+        with: { sarif_file: archfence.sarif }
+      - run: archfence scan

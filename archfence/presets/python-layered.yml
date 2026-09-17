@@ -1,0 +1,25 @@
+# domain <- services <- adapters (db, http) <- entrypoints.
+languages: [python]
+layers:
+  domain:
+    paths: ["**/domain/**"]
+    can_only_import: []
+    cannot_import_external:
+      sqlalchemy: warning
+      django: warning
+      fastapi: warning
+      flask: warning
+      requests: warning
+      httpx: warning
+  services:
+    paths: ["**/services/**", "**/application/**"]
+    can_only_import: [domain]
+    cannot_import_external:
+      sqlalchemy: warning
+      fastapi: warning
+      flask: warning
+  adapters:
+    paths: ["**/adapters/**", "**/infrastructure/**", "**/repositories/**"]
+    can_only_import: [domain, services]
+  entrypoints:
+    paths: ["**/api/**", "**/cli/**", "**/entrypoints/**"]

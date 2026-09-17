@@ -1,0 +1,14 @@
+# domain <- application <- adapters <- main. Paths are module dirs under src/.
+languages: [rust]
+layers:
+  domain:
+    paths: ["src/domain/**", "src/domain.rs"]
+    can_only_import: []
+  application:
+    paths: ["src/application/**", "src/application.rs"]
+    can_only_import: [domain]
+  adapters:
+    paths: ["src/adapters/**", "src/adapters.rs", "src/infrastructure/**"]
+    can_only_import: [domain, application]
+  entry:
+    paths: ["src/main.rs", "src/lib.rs", "src/bin/**"]

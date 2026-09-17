@@ -1,0 +1,18 @@
+# archfence, checked by archfence. Core is the kernel every check shares; each check is a
+# vertical slice that owns its config, its rules and its init proposal.
+languages: [python]
+strict: true
+layers:
+  model:      { paths: ["archfence/core/model.py"],  can_only_import: [] }
+  globs:      { paths: ["archfence/core/globs.py"],  can_only_import: [] }
+  core:       { paths: ["archfence/core/**"],        can_only_import: [model, globs, extractors] }
+  extractors: { paths: ["archfence/extractors/**"],  can_only_import: [model] }
+  checks:     { paths: ["archfence/checks/**"],      can_only_import: [model, globs, core] }
+  draft:      { paths: ["archfence/draft.py"],       can_only_import: [model, core, checks] }
+  cli:        { paths: ["archfence/cli.py"] }
+  presets:    { paths: ["archfence/presets/**"] }
+  tests:      { paths: ["tests/**"] }
+slices:
+  roots: ["archfence/checks/*"]
+  shared: ["archfence/checks/base.py", "archfence/checks/__init__.py"]
+  shared_imports_slices: off   # the registry in checks/__init__.py names every slice by design

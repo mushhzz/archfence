@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "archfence"
+version = "0.1.0"
+description = "Polyglot architecture linter: layer rules, vertical slices and API-contract-first checks across C#, Python, TypeScript, Dart and Rust from one YAML config."
+readme = "README.md"
+authors = [{ name = "Jake Uren", email = "mushhz@gmail.com" }]
+keywords = ["architecture", "linter", "clean-architecture", "dependency-rules", "openapi", "tree-sitter"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Software Development :: Quality Assurance",
+]
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+  "tree-sitter>=0.23",
+  "tree-sitter-language-pack>=0.4",
+  "pyyaml>=6",
+]
+
+[project.urls]
+Homepage = "https://github.com/mushhzz/archfence"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+archfence = "archfence.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["archfence*"]
+
+[tool.setuptools.package-data]
+archfence = ["presets/*.yml"]

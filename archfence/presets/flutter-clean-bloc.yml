@@ -1,0 +1,42 @@
+# domain <- data <- presentation; core is shared plumbing; di wires concrete implementations;
+# router lives in core but must name the screens it routes to, so it is its own layer.
+languages: [dart]
+layers:
+  di:
+    paths: ["lib/core/di/**"]
+  router:
+    paths: ["lib/core/router/**"]
+  core:
+    paths: ["lib/core/**"]
+    cannot_import: [presentation, data, router]
+  domain:
+    paths: ["lib/domain/**"]
+    can_only_import: []
+    cannot_import_external:
+      package:flutter/: warning
+      package:http/: warning
+      package:dio/: warning
+      dart:io: warning
+  data:
+    paths: ["lib/data/**"]
+    can_only_import: [domain, core]
+    cannot_import_external:
+      package:flutter/: warning
+      package:flutter_bloc/: warning
+  presentation:
+    paths: ["lib/presentation/**"]
+    can_only_import: [domain, core, di, router]
+    cannot_import_external:
+      package:http/: warning
+      dart:io: warning
+  app:
+    paths: ["lib/main.dart", "lib/app.dart"]
+# The router <-> presentation cycle is how go_router works; do not report it.
+allow:
+  - path: "lib/core/router/**"
+    rules: [layer-cycle]
+    reason: "go_router: the router names screens and screens navigate via the router"
+  - path: "lib/presentation/**"
+    rules: [layer-cycle]
+    layers: [router]
+    reason: "go_router: the router names screens and screens navigate via the router"

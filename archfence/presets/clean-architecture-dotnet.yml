@@ -1,0 +1,29 @@
+# Domain <- Application <- Infrastructure <- WebApi.
+# Layer-to-layer rules are errors: they are the Dependency Rule itself.
+# Framework bans are warnings: strict Clean Architecture forbids them, most teams tolerate some.
+# Set `strict: true` on the project to promote every warning to an error.
+languages: [csharp]
+layers:
+  domain:
+    paths: ["src/*.Domain/**"]
+    can_only_import: []
+    cannot_import_external:
+      Microsoft.EntityFrameworkCore: warning
+      Microsoft.AspNetCore: warning
+      MediatR: warning
+      System.Net.Http: warning
+      System.Text.Json: warning
+  application:
+    paths: ["src/*.Application/**"]
+    can_only_import: [domain]
+    cannot_import_external:
+      Microsoft.EntityFrameworkCore: warning
+      Microsoft.AspNetCore: warning
+      Npgsql: warning
+  infrastructure:
+    paths: ["src/*.Infrastructure/**"]
+    can_only_import: [domain, application]
+    cannot_import_external:
+      Microsoft.AspNetCore.Mvc: warning
+  webapi:
+    paths: ["src/*.WebApi/**", "src/*.Api/**", "src/*.Web/**"]
