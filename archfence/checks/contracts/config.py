@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ...core.config import ConfigError, severity, string_list
+from ...core.config import ConfigError, reject_unknown, severity, string_list
 
 CONTRACT_LAYER_NAMES = ("schemas", "contracts", "dto", "dtos")
 CONSUMER_LAYER_NAMES = ("routers", "router", "controllers", "api", "endpoints", "views", "webapi")
@@ -37,6 +37,7 @@ def parse_contracts(raw, ctx: str, layer_names: set[str]) -> ContractsConfig | N
         return None
     if isinstance(raw, str):
         raw = {"layer": raw}
+    reject_unknown(raw, {"layer", "consumers", "allow", "severity", "openapi"}, f"{ctx}: contracts")
     layer = raw.get("layer")
     if not layer or str(layer) not in layer_names:
         raise ConfigError(f"{ctx}: contracts.layer must name one of the layers, got {layer!r}")
@@ -53,6 +54,7 @@ def parse_contracts(raw, ctx: str, layer_names: set[str]) -> ContractsConfig | N
     if oa:
         if isinstance(oa, str):
             oa = {"path": oa}
+        reject_unknown(oa, {"path", "prefix", "match", "severity", "pending", "history", "history_severity", "ignore"}, f"{ctx}: contracts.openapi")
         if not oa.get("path"):
             raise ConfigError(f"{ctx}: contracts.openapi needs 'path'")
         match = str(oa.get("match", "operation_id"))

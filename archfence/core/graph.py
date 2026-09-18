@@ -16,6 +16,23 @@ class EmptyProject(Exception):
     """The project's root and language matched no files: almost always a misconfiguration."""
 
 
+def to_utf8(raw: bytes) -> bytes:
+    """Normalise source bytes to UTF-8 for tree-sitter, which assumes UTF-8.
+
+    UTF-8 (with or without a BOM) is passed through unchanged - the grammars tolerate the BOM. A UTF-16 or
+    UTF-32 file (common for older Windows/VS C#) is decoded via its BOM; without this it is gibberish to the
+    parser and the whole file fails to parse. Malformed content falls back to the raw bytes.
+    """
+    try:
+        if raw.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+            return raw.decode("utf-32").encode("utf-8")
+        if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+            return raw.decode("utf-16").encode("utf-8")
+    except (UnicodeDecodeError, ValueError):
+        return raw
+    return raw
+
+
 @dataclass
 class Graph:
     project: ProjectConfig
@@ -23,6 +40,8 @@ class Graph:
     files: dict[str, SourceFile] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
     provides_index: dict[str, list[str]] = field(default_factory=dict)
+    parse_errors: list[str] = field(default_factory=list)  # files the grammar could not fully parse
+    read_errors: list[str] = field(default_factory=list)  # files that could not be read off disk
 
     def layer_edges(self) -> dict[tuple[str, str], list[Edge]]:
         """Resolved edges grouped by (src_layer, dst_layer), internal only."""
@@ -51,7 +70,7 @@ def _iter_files(root: Path, project: ProjectConfig) -> list[str]:
     return sorted(rel_paths)
 
 
-def resolve_target(target: str, index: dict[str, list[str]], separators: tuple[str, ...] = (".", "::", "/")) -> list[str]:
+def resolve_target(target: str, index: dict[str, list[str]], separators: tuple[str, ...] = ("::", "/", ".")) -> list[str]:
     """Longest-prefix lookup of a logical name in the provides index.
 
     Exact match first; otherwise strip trailing segments (so `using A.B.C` where a
@@ -83,12 +102,18 @@ def build_graph(config_root: Path, project: ProjectConfig) -> Graph:
         ex.prepare(wanted)
         for rel in wanted:
             try:
-                source = (root / rel).read_bytes()
+                source = to_utf8((root / rel).read_bytes())
             except OSError:
+                graph.read_errors.append(rel)
                 continue
             sf = ex.extract(rel, source)
             sf.layer = project.layer_for(rel)
             graph.files[rel] = sf
+            # Only surface a parse error when the file yielded nothing at all. tree-sitter recovers past most
+            # errors (a C# `#if` block, say) with the imports/types/namespaces already captured, so warning
+            # about those would be a false alarm; we warn only when extraction genuinely got nothing to analyse.
+            if sf.parse_error and not (sf.imports or sf.provides or sf.types or sf.routes):
+                graph.parse_errors.append(rel)
             for name in sf.provides:
                 graph.provides_index.setdefault(name, []).append(rel)
 

@@ -1,0 +1,8 @@
+{
+  "name": "archfence",
+  "description": "Drive the archfence CLI to enforce and analyze software architecture: layer/import rules, vertical slices, API-contract-first checks, dependency cycles, and coupling metrics across C#, Python, TypeScript, Dart and Rust.",
+  "version": "0.1.0",
+  "author": { "name": "Jake Uren" },
+  "homepage": "https://github.com/mushhzz/archfence",
+  "keywords": ["architecture", "linter", "clean-architecture", "dependency-rules"]
+}

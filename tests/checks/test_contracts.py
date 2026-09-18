@@ -102,3 +102,17 @@ def test_history_orders_contract_before_code(tmp_path, monkeypatch, capsys):
     assert "4 day(s) before it reached openapi.yaml" in out
     assert "listUsers" not in out
     assert "0 error(s), 1 warning(s)" in out
+
+
+def test_history_code_op_matcher_is_attribute_scoped():
+    from archfence.checks.contracts.history import _match_code_op
+
+    # Python / JS route decorators
+    assert _match_code_op('+    @router.get("/x", operation_id="listUsers")').group(1) == "listUsers"
+    # C#: Name on a routing attribute is a route id
+    assert _match_code_op('+        [HttpGet("{id}", Name = "GetUser")]').group(1) == "GetUser"
+    assert _match_code_op('+    [Route("api/v1/orders", Name="Orders")]').group(1) == "Orders"
+    # C#: an ordinary Name assignment is NOT a route id (the old regex matched this)
+    assert _match_code_op('+        public string Name = "Widget";') is None
+    assert _match_code_op('+    var opts = new Options { Name = "cache" };') is None
+    assert _match_code_op('+    logger.LogInformation("done");') is None

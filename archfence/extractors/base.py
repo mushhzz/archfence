@@ -30,6 +30,16 @@ def walk(node: Node, types: set[str]):
         stack.extend(reversed(n.children))
 
 
+def count_members(type_node: Node, body_types: set[str], member_types: set[str]) -> int:
+    """Count direct members of a class-like node: children of its body whose type is a member type.
+
+    Counting only *direct* children keeps a nested type's methods out of its enclosing type's tally."""
+    body = next((c for c in type_node.children if c.type in body_types), None)
+    if body is None:
+        return 0
+    return sum(1 for c in body.children if c.type in member_types)
+
+
 class Extractor(ABC):
     """One per language. Turns a file into a SourceFile with logical provides/imports."""
 

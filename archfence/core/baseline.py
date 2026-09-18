@@ -11,9 +11,24 @@ from .model import Violation
 DEFAULT_NAME = "archfence-baseline.json"
 
 
-def key(v: Violation) -> str:
+def _cycle_layers(message: str) -> str:
+    """The set of layers named in a layer-cycle message, sorted and joined: a fingerprint that does not
+    change when the cycle is re-detected through a different representative edge or file."""
+    tail = message.split(":", 1)[-1]
+    return ",".join(sorted({s.strip() for s in tail.split("->") if s.strip()}))
+
+
+def _key(project: str, rule: str, path: str, target: str, layer: str | None, message: str) -> str:
+    # A layer cycle is identified by the layers it spans, not by which edge happened to represent it,
+    # so moving the offending import between files does not resurrect a baselined cycle.
+    if rule == "layer-cycle":
+        return "|".join([project, rule, _cycle_layers(message)])
     # Line numbers are deliberately left out so unrelated edits above a violation do not churn it.
-    return "|".join([v.project, v.rule, v.path, v.target, v.dst_layer or ""])
+    return "|".join([project, rule, path, target, layer or ""])
+
+
+def key(v: Violation) -> str:
+    return _key(v.project, v.rule, v.path, v.target, v.dst_layer, v.message)
 
 
 def write(path: Path, violations: list[Violation]) -> int:
@@ -27,7 +42,7 @@ def write(path: Path, violations: list[Violation]) -> int:
 
 def load(path: Path) -> set[str]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    return {"|".join([e["project"], e["rule"], e["path"], e["target"], e.get("layer") or ""]) for e in data.get("violations", [])}
+    return {_key(e["project"], e["rule"], e["path"], e["target"], e.get("layer"), e.get("message", "")) for e in data.get("violations", [])}
 
 
 def split(violations: list[Violation], known: set[str]) -> tuple[list[Violation], list[Violation]]:

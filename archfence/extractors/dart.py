@@ -6,8 +6,8 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
-from ..core.model import Import, SourceFile
-from .base import Extractor, text, walk
+from ..core.model import Import, SourceFile, TypeDef
+from .base import Extractor, count_members, text, walk
 
 _URI_RE = re.compile(r"""^['"](.*?)['"]$""")
 
@@ -71,6 +71,7 @@ class DartExtractor(Extractor):
     def extract(self, rel_path: str, source: bytes) -> SourceFile:
         tree = self.parse(rel_path, source)
         sf = SourceFile(path=rel_path, language=self.language)
+        sf.parse_error = tree.root_node.has_error
         sf.provides = self._provides(rel_path)
         for node in walk(tree.root_node, {"import_or_export", "part_directive"}):
             line = node.start_point[0] + 1
@@ -83,4 +84,14 @@ class DartExtractor(Extractor):
                 continue
             uri = m.group(1)
             sf.imports.append(Import(self._resolve(uri, rel_path), line, raw))
+        sf.types = self._types(tree)
         return sf
+
+    def _types(self, tree) -> list[TypeDef]:
+        out: list[TypeDef] = []
+        for cd in walk(tree.root_node, {"class_definition", "mixin_declaration"}):
+            name = cd.child_by_field_name("name")
+            methods = count_members(cd, {"class_body"}, {"method_signature"})
+            out.append(TypeDef(text(name) if name is not None else "?", "class", methods, cd.start_point[0] + 1))
+        return out
+

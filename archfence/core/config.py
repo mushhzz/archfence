@@ -17,9 +17,21 @@ from .globs import glob_match, specificity
 PRESET_DIR = Path(__file__).parent.parent / "presets"
 SEVERITIES = ("error", "warning", "info", "off")
 
+# Keys core understands on a project. Checks add their own via `config_keys` (see reject_unknown use below).
+CORE_PROJECT_KEYS = {"name", "extends", "languages", "language", "root", "ignore", "source_roots", "strict", "allow", "layers"}
+LAYER_KEYS = {"paths", "path", "severity", "cannot_import", "can_only_import", "cannot_import_external", "can_only_import_external"}
+WAIVER_KEYS = {"path", "reason", "layers", "layer", "external", "rules"}
+
 
 class ConfigError(Exception):
     pass
+
+
+def reject_unknown(spec: dict, allowed: set[str], ctx: str) -> None:
+    """Fail on a key that no rule reads, so a typo (`cannot_imports:`) is an error, not a silently dead rule."""
+    unknown = sorted(k for k in spec if k not in allowed)
+    if unknown:
+        raise ConfigError(f"{ctx}: unknown key(s) {unknown}; expected one of {sorted(allowed)}")
 
 
 # ---------------------------------------------------------------- shared parsing helpers
@@ -222,6 +234,7 @@ def _parse_layers(raw: dict, ctx: str) -> list[LayerConfig]:
         if not paths:
             raise ConfigError(f"{ctx}: layer '{name}' needs 'paths'")
         lctx = f"{ctx}, layer '{name}'"
+        reject_unknown(spec, LAYER_KEYS, lctx)
         default = severity(spec.get("severity"), lctx, "error")
         layers.append(
             LayerConfig(
@@ -251,6 +264,7 @@ def _parse_waivers(raw, ctx: str, layer_names: set[str]) -> list[Waiver]:
     for i, item in enumerate(raw):
         if not isinstance(item, dict) or not item.get("path"):
             raise ConfigError(f"{ctx}: allow[{i}] needs a 'path' glob")
+        reject_unknown(item, WAIVER_KEYS, f"{ctx}: allow[{i}] ({item['path']})")
         reason = str(item.get("reason") or "").strip()
         if not reason:
             raise ConfigError(f"{ctx}: allow[{i}] ({item['path']}) needs a 'reason' - waivers must document themselves")
@@ -268,6 +282,8 @@ def parse_project(raw: dict, default_name: str) -> ProjectConfig:
         raw = _merge(_resolve_preset(str(raw["extends"])), {k: v for k, v in raw.items() if k != "extends"})
     name = str(raw.get("name") or default_name)
     ctx = f"project '{name}'"
+    allowed = CORE_PROJECT_KEYS | {c.key for c in CHECK_PARSERS} | {k for c in CHECK_PARSERS for k in getattr(c, "config_keys", ())}
+    reject_unknown(raw, allowed, ctx)
     languages = string_list(raw.get("languages") or raw.get("language"))
     if not languages:
         raise ConfigError(f"{ctx}: 'languages' is required (csharp, python, typescript, dart, rust)")
@@ -297,6 +313,7 @@ def load_config(path: str | Path) -> Config:
     data = _load_yaml(path)
     projects: list[ProjectConfig] = []
     if "projects" in data:
+        reject_unknown(data, {"projects"}, str(path))
         raw_projects = data["projects"]
         if isinstance(raw_projects, dict):
             items = [(k, dict(v or {}, name=k)) for k, v in raw_projects.items()]

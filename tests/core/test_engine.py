@@ -103,3 +103,66 @@ def test_baseline_only_fails_on_new(leaky_project, monkeypatch, capsys):
     assert "FAIL: 1 error(s) (2 baselined)" in out
     assert main(["scan", "--no-baseline"]) == 1
     assert "FAIL: 3 error(s)" in capsys.readouterr().out
+
+
+def test_layer_cycle_baseline_key_is_stable_across_representative_edge():
+    from archfence.core.baseline import key
+    from archfence.core.model import Violation
+
+    def cyc(path, line, target, dst, msg):
+        return Violation("layer-cycle", msg, path, line, "a", dst, target, "proj", "error")
+
+    m = "dependency cycle between layers: a -> b -> a"
+    # same cycle, detected through two different edges/files/targets -> one baseline identity
+    v1 = cyc("a/one.py", 3, "b.thing", "b", m)
+    v2 = cyc("a/two.py", 9, "b.other", "b", m)
+    assert key(v1) == key(v2)
+    # a genuinely different cycle is a different identity
+    assert key(v1) != key(cyc("a/x.py", 1, "c.z", "c", "dependency cycle between layers: a -> c -> a"))
+
+
+def test_parse_error_is_not_flagged_when_imports_were_still_extracted(tmp_path, monkeypatch, capsys):
+    # A syntax error below the imports (tree-sitter recovers) must NOT raise parse-error: the imports were
+    # captured, so it is a false alarm. The captured import must still be analysed.
+    write(tmp_path, "app/domain/leaky.py", "from app.infra.db import thing\n\ndef broken(((  !!! not valid\n")
+    write(tmp_path, "app/infra/db.py", "thing = 1\n")
+    write(tmp_path, "archfence.yml", """
+        languages: [python]
+        source_roots: [.]
+        layers:
+          domain: { paths: ["app/domain/**"], cannot_import: [infra] }
+          infra: { paths: ["app/infra/**"] }
+    """)
+    monkeypatch.chdir(tmp_path)
+    assert main(["scan"]) == 1
+    out = capsys.readouterr().out
+    assert "parse-error" not in out                          # no false positive
+    assert "app/domain/leaky.py:1: error[forbidden-import]" in out  # the import was still analysed
+
+
+def test_parse_error_is_surfaced_only_when_nothing_was_extracted(tmp_path, monkeypatch, capsys):
+    # C# provides come from the parse, so a file the grammar cannot parse at all yields no imports, no
+    # namespace and no types: nothing to analyse. That is the genuine case worth a warning.
+    write(tmp_path, "src/App/ok.cs", "namespace App; class Ok {}\n")
+    write(tmp_path, "src/App/garbage.cs", "@#$%^&*( this is not c# at all )*&^%$#@\n")
+    write(tmp_path, "archfence.yml", """
+        languages: [csharp]
+        layers:
+          app: { paths: ["src/App/**"] }
+    """)
+    monkeypatch.chdir(tmp_path)
+    assert main(["scan"]) == 0  # a parse error is a warning, not a build failure
+    out = capsys.readouterr().out
+    assert "src/App/garbage.cs:1: warning[parse-error]" in out
+    assert "1 warning(s)" in out
+
+    # it is waivable like any other finding
+    write(tmp_path, "archfence.yml", """
+        languages: [csharp]
+        layers:
+          app: { paths: ["src/App/**"] }
+        allow:
+          - { path: "src/App/garbage.cs", rules: [parse-error], reason: "vendored, ignore" }
+    """)
+    assert main(["scan"]) == 0
+    assert "parse-error" not in capsys.readouterr().out

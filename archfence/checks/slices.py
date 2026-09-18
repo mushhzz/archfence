@@ -5,7 +5,7 @@ import fnmatch
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from ..core.config import ConfigError, severity, string_list
+from ..core.config import ConfigError, reject_unknown, severity, string_list
 from ..core.globs import glob_match
 from ..core.graph import Graph
 from ..core.model import Violation
@@ -54,6 +54,7 @@ class SlicesCheck(Check):
             raw = {"roots": [raw]}
         if isinstance(raw, list):
             raw = {"roots": raw}
+        reject_unknown(raw, {"roots", "root", "shared", "shared_only", "shared_imports_slices", "severity", "allow"}, f"{ctx}: slices")
         roots = string_list(raw.get("roots") or raw.get("root"))
         if not roots:
             raise ConfigError(f"{ctx}: slices needs 'roots' (globs whose children are the slices, e.g. app/features/*)")

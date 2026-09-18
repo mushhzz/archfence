@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.2.0
+
+### Added
+
+- **Coupling metrics** (`metrics` check + `archfence metrics` command): afferent/efferent coupling over the
+  resolved import graph, the same for every language. `fan_out`, `fan_in` and `god_class` are gate-able rules
+  (`high-fan-out`, `high-fan-in`, `god-class`) that obey severity, `strict`, waivers and the baseline;
+  `dead_code` flags files nothing imports (route-declaring files and declared entrypoints excepted). The
+  command also reports per-layer instability `I = Ce / (Ca + Ce)` and the largest types.
+- **`archfence watch`**: rescans whenever a file under the project root changes; a config or parse error is
+  shown and the loop keeps running.
+- **Claude Code plugin**: an `archfence` skill (`skills/archfence/`) that teaches an agent to drive the CLI,
+  an `/archfence-scan` command, and a `.claude-plugin/plugin.json` manifest. It drives the installed CLI.
+
+### Fixed
+
+- Config loading rejects unknown keys at every level (project, layer, waiver, `slices`, `contracts`,
+  `contracts.openapi`). A typo such as `cannot_imports:` was silently accepted and disabled the rule; it is
+  now an error (exit 2) that names the bad key and lists the valid ones.
+- Source files encoded as UTF-16/UTF-32 (common for older Windows/Visual Studio C#) are decoded to UTF-8 via
+  their byte-order mark before parsing, instead of being handed to the parser as bytes and dropped entirely.
+- `parse-error` (new warning) fires only when a file cannot be read, or cannot be parsed at all (no imports,
+  namespaces or types extracted). A file the grammar recovers from with its imports intact is not flagged, so
+  a deep syntax error below the imports (e.g. a C# `#if` block) is not a false alarm. Waivable like any rule.
+- Import resolution selects a target's separator as `::` then `/` then `.`, so a path-style target with a dot
+  in a filename segment is no longer mis-split.
+- The git-history check's C# operation-id detection requires `Name = "..."` to sit on a routing attribute
+  (`[HttpGet ...]`, `[Route ...]`), so an ordinary `Name = "..."` no longer trips `route-before-contract`.
+- `layer-cycle` baseline entries are keyed by the set of layers in the cycle, so moving the offending import
+  between files no longer resurrects a baselined cycle.
+
 ## 0.1.1
 
 - Restructured into a small core, one extractor per language and one vertical slice per check,

@@ -4,8 +4,9 @@ A polyglot architecture linter. One YAML file describes your layers and which la
 depend on which; archfence parses the code with tree-sitter and fails the build when an
 import crosses a line it should not.
 
-Checks: layer dependency rules, external-package bans, layer cycles, vertical slices, and
-API-contract-first (contract layer purity, routers speak contract types, OpenAPI drift).
+Checks: layer dependency rules, external-package bans, layer cycles, vertical slices,
+API-contract-first (contract layer purity, routers speak contract types, OpenAPI drift), and
+coupling metrics (fan-in/fan-out, instability, god-class, dead code).
 Supported today: **C#**, **Python**, **TypeScript/JavaScript**, **Dart/Flutter**, **Rust**. Adding a language means
 writing one extractor (about 80 lines) that reports what a file *provides* and what it
 *imports* in that language's own vocabulary. Everything else is shared.
@@ -31,7 +32,13 @@ ships `.pre-commit-hooks.yaml`, so `repo: https://github.com/mushhzz/archfence` 
 is all a project needs.
 
 A project whose `root` and `languages` match no files is a configuration error (exit 2), not a
-clean scan.
+clean scan. An unknown key anywhere in the config is also an error (exit 2): a typo such as
+`cannot_imports:` fails loudly with the valid keys listed, rather than silently disabling the rule.
+
+A file the parser cannot read, or cannot parse at all (nothing - no imports, namespaces or types -
+could be extracted), is reported as a `parse-error` warning rather than silently contributing nothing.
+A file the grammar recovers from, with its imports still captured, is not flagged. Waive it like any
+other rule if a file is expected not to parse.
 
 ## Configure
 
@@ -168,6 +175,27 @@ contracts added in a later PR than the code, not later commits within one PR.
 `init` proposes both blocks when it sees a `features/` directory with several children, or a
 contract-named layer plus an `openapi.*` file, and guesses the mount prefix from the spec's paths.
 
+### Coupling metrics
+
+The resolved import graph already knows what depends on what, so afferent/efferent coupling is a count
+over it, the same for every language. Thresholds are ordinary rules: they carry a severity and obey
+`strict`, waivers and the baseline.
+
+```yaml
+metrics:
+  fan_out: { max: 15, severity: warning }   # too many outgoing deps: a hub that is hard to change (shorthand: `fan_out: 15`)
+  fan_in:  { max: 30, severity: error }      # too many incoming deps: a change here ripples widely
+  god_class: { max_methods: 20, severity: warning }   # a class/impl with too many methods (SRP smell)
+  dead_code:                                 # files nothing imports (opt-in; route-declaring files are treated as entrypoints)
+    severity: warning
+    entrypoints: ["src/**/main.py", "**/__main__.py"]
+    exclude: ["**/generated/**"]
+```
+
+Rules: `high-fan-out`, `high-fan-in`, `god-class`, `dead-code`. `archfence metrics` prints the per-file fan-in/fan-out
+and each layer's instability `I = Ce / (Ca + Ce)` (0 stable, 1 unstable), worst offenders first, without
+gating anything.
+
 ### Baseline
 
 Adopting a linter on a codebase with history should not require a big-bang cleanup.
@@ -211,6 +239,8 @@ archfence warm                # load every grammar now
 archfence scan [-v] [-f text|json|sarif] [-o file] [-p project] [--warn-only] [--baseline f] [--show-waived]
 archfence baseline            # record current violations so only new ones fail
 archfence routes              # HTTP routes found in source, with the contract prefix applied
+archfence metrics [--top N]   # per-file fan-in/fan-out, per-layer instability, largest types
+archfence watch               # rescan on every file change (Ctrl-C to stop)
 archfence deps [--files]      # layer-to-layer dependency counts, optionally every edge
 archfence unresolved          # imports that are not project code (i.e. your external deps)
 ```
@@ -239,6 +269,19 @@ is an external dependency and is only subject to the `*_external` rules.
 `examples/multi-language.yml` lints one repository holding an ASP.NET Core Clean Architecture
 backend, a Flutter Clean Architecture + BLoC UI and a Rust agent, in one run. A few hundred files
 across three languages scan in about a second.
+
+## Using with Claude Code and coding agents
+
+This repository is also a Claude Code plugin: a skill that teaches an agent to drive the CLI (set up a
+config, run scans and read exit codes, investigate violations, add waivers, adopt via baseline, read
+metrics) plus an `/archfence-scan` command. It lives in `skills/archfence/` and `.claude-plugin/`.
+
+- **As a plugin:** add this repo through Claude Code's `/plugin` (marketplace or a git URL).
+- **As a skill only:** copy `skills/archfence/` into `~/.claude/skills/` (user-wide) or a project's
+  `.claude/skills/`. `SKILL.md` is the entry point; the full config schema is in its `REFERENCE.md`.
+
+The agent still needs the `archfence` CLI on PATH (`pip install archfence`); the skill drives it, it does
+not reimplement it.
 
 ## Layout and contributing
 
