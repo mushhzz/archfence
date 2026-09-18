@@ -82,3 +82,100 @@ def test_most_specific_layer_wins(tmp_path):
     assert project.layer_for("lib/core/router/app_router.dart") == "router"
     assert project.layer_for("lib/core/router/special.dart") == "file"
     assert project.layer_for("lib/other.dart") is None
+
+
+def _err(tmp_path, body):
+    (tmp_path / "archfence.yml").write_text(textwrap.dedent(body))
+    with pytest.raises(ConfigError, match="unknown key"):
+        load_config(tmp_path / "archfence.yml")
+
+
+def test_typo_in_rule_key_is_rejected(tmp_path):
+    # The headline footgun: a mistyped rule key must fail loudly, not silently disable the rule.
+    _err(tmp_path, """
+        languages: [python]
+        layers:
+          domain: { paths: ["a/**"], cannot_imports: [infra] }
+          infra: { paths: ["b/**"] }
+    """)
+
+
+def test_unknown_project_key_is_rejected(tmp_path):
+    _err(tmp_path, """
+        languages: [python]
+        stricy: true
+        layers:
+          a: { paths: ["a/**"] }
+    """)
+
+
+def test_unknown_waiver_key_is_rejected(tmp_path):
+    _err(tmp_path, """
+        languages: [python]
+        layers:
+          a: { paths: ["a/**"] }
+        allow:
+          - path: "a/**"
+            reason: "x"
+            layerz: [a]
+    """)
+
+
+def test_unknown_slices_and_contracts_keys_are_rejected(tmp_path):
+    _err(tmp_path, """
+        languages: [python]
+        layers:
+          schemas: { paths: ["s/**"] }
+          routers: { paths: ["r/**"] }
+        slices:
+          roots: ["feat/*"]
+          shard: ["core/**"]
+    """)
+    _err(tmp_path, """
+        languages: [python]
+        layers:
+          schemas: { paths: ["s/**"] }
+          routers: { paths: ["r/**"] }
+        contracts:
+          layer: schemas
+          consumers: [routers]
+          openapi: { path: o.yaml, prefx: /api }
+    """)
+
+
+def test_stray_top_level_key_beside_projects_is_rejected(tmp_path):
+    _err(tmp_path, """
+        projcts:
+          web:
+            languages: [python]
+            layers:
+              a: { paths: ["a/**"] }
+    """)
+
+
+def test_known_keys_still_load(tmp_path):
+    # Every documented project/layer/check key together must load without error.
+    (tmp_path / "archfence.yml").write_text(textwrap.dedent("""
+        languages: [python]
+        root: .
+        strict: false
+        source_roots: ["."]
+        ignore: ["**/migrations/**"]
+        allow_unlayered: true
+        no_cycles: warning
+        layers:
+          schemas: { paths: ["s/**"], severity: warning, can_only_import: [], cannot_import: {routers: error},
+                     cannot_import_external: {os: warning}, can_only_import_external: ["typing"] }
+          routers: { paths: ["r/**"] }
+        allow:
+          - { path: "r/**", layers: [schemas], external: [os], rules: [forbidden-import], reason: "ok" }
+        slices: { roots: ["feat/*"], shared: ["core/**"], shared_only: true, shared_imports_slices: off, severity: warning, allow: {a: [b]} }
+        contracts:
+          layer: schemas
+          consumers: [routers]
+          allow: [routers]
+          severity: warning
+          openapi: { path: o.yaml, prefix: /api, match: both, severity: warning, pending: info, history: false, history_severity: warning, ignore: ["/health*"] }
+    """))
+    cfg = load_config(tmp_path / "archfence.yml")
+    assert cfg.projects[0].check("layers").no_cycles == "warning"

@@ -32,6 +32,7 @@ def match_prefix(target: str, prefixes) -> str | None:
 
 class LayersCheck(Check):
     key = "layers"
+    config_keys = ("no_cycles", "allow_unlayered")
 
     def parse(self, raw: dict, ctx: str, layer_names: set[str]) -> LayersConfig:
         no_cycles = raw.get("no_cycles", True)

@@ -36,6 +36,7 @@ class Proposal:
 
 class Check(ABC):
     key: str  # config key and violation namespace
+    config_keys: tuple[str, ...] = ()  # extra top-level project keys this check reads (besides its own `key`)
 
     @abstractmethod
     def parse(self, raw_project: dict, ctx: str, layer_names: set[str]) -> Any | None:

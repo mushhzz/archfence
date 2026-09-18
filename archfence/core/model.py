@@ -31,6 +31,16 @@ class Route:
     handler: str = ""
 
 
+@dataclass(frozen=True)
+class TypeDef:
+    """A class-like declaration and how many methods it holds (for size/SRP metrics)."""
+
+    name: str
+    kind: str  # class, struct, interface, impl, trait ...
+    methods: int
+    line: int
+
+
 @dataclass
 class SourceFile:
     """A parsed source file: what it provides and what it imports."""
@@ -42,6 +52,8 @@ class SourceFile:
     layer: str | None = None
     scope: str | None = None  # crate / package the file belongs to; resolution prefers the same scope
     routes: list[Route] = field(default_factory=list)
+    types: list[TypeDef] = field(default_factory=list)  # class-like declarations, for size metrics
+    parse_error: bool = False  # the grammar hit a syntax error; provides/imports here may be incomplete
 
     @property
     def name(self) -> str:

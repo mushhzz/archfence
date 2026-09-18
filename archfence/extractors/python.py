@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 
-from ..core.model import Import, Route, SourceFile
-from .base import Extractor, text, walk
+from ..core.model import Import, Route, SourceFile, TypeDef
+from .base import Extractor, count_members, text, walk
 
 _HTTP = {"get", "post", "put", "patch", "delete", "head", "options"}
 _ROUTE_FUNCS = _HTTP | {"route", "api_route", "add_api_route", "websocket"}
@@ -61,6 +61,7 @@ class PythonExtractor(Extractor):
     def extract(self, rel_path: str, source: bytes) -> SourceFile:
         tree = self.parse(rel_path, source)
         sf = SourceFile(path=rel_path, language=self.language)
+        sf.parse_error = tree.root_node.has_error
         sf.provides = self._module_names(rel_path)
         primary = sf.provides[0]
         is_package = PurePosixPath(rel_path).name == "__init__.py"
@@ -118,6 +119,7 @@ class PythonExtractor(Extractor):
                 full = f"{base}.{name}" if base else name
                 sf.imports.append(Import(full, line, raw))
         sf.routes = self._routes(tree)
+        sf.types = self._types(tree)
         return sf
 
     def _routes(self, tree) -> list[Route]:
@@ -166,3 +168,12 @@ class PythonExtractor(Extractor):
                 for m in methods:
                     routes.append(Route(m, full, dec.start_point[0] + 1, op, handler))
         return routes
+
+    def _types(self, tree) -> list[TypeDef]:
+        out: list[TypeDef] = []
+        for cd in walk(tree.root_node, {"class_definition"}):
+            name = cd.child_by_field_name("name")
+            methods = count_members(cd, {"block"}, {"function_definition"})
+            out.append(TypeDef(text(name) if name is not None else "?", "class", methods, cd.start_point[0] + 1))
+        return out
+

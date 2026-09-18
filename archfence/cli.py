@@ -5,11 +5,57 @@ import argparse
 import sys
 from pathlib import Path
 
+import os
+import time
+
 from .checks import run_checks
 from .core import baseline as bl
-from .core.config import ConfigError, load_config
-from .core.graph import EmptyProject, build_graph
+from .core.config import Config, ConfigError, load_config
+from .core.graph import _SKIP_DIRS, EmptyProject, build_graph
 from .core.report import json_report, sarif_report, text_report
+
+
+def _select(config: Config, project_filter):
+    projects = config.projects
+    if project_filter:
+        projects = [p for p in projects if p.name in set(project_filter)]
+    return projects
+
+
+def _fs_signature(config: Config, projects) -> dict[str, float]:
+    """Modification times of the config and every file under each project root, for change detection."""
+    sig: dict[str, float] = {}
+    try:
+        sig["<config>"] = config.path.stat().st_mtime
+    except OSError:
+        pass
+    for p in projects:
+        base = (config.path.parent / p.root).resolve()
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+            for fn in filenames:
+                fp = os.path.join(dirpath, fn)
+                try:
+                    sig[fp] = os.stat(fp).st_mtime
+                except OSError:
+                    pass
+    return sig
+
+
+def scan_pass(config: Config, projects) -> str:
+    """One scan over the given projects, baseline applied, as text. Raises EmptyProject/ValueError like scan."""
+    graphs = [build_graph(config.path.parent, p) for p in projects]
+    violations: list = []
+    waived: list = []
+    for g in graphs:
+        kept, w = run_checks(g)
+        violations.extend(kept)
+        waived.extend(w)
+    baselined: list = []
+    bpath = config.path.parent / bl.DEFAULT_NAME
+    if bpath.exists():
+        violations, baselined = bl.split(violations, bl.load(bpath))
+    return text_report(violations, graphs, baselined=baselined, waived=waived)
 
 
 def _find_config(explicit: str | None) -> Path:
@@ -60,6 +106,16 @@ def main(argv: list[str] | None = None) -> int:
     routes_p.add_argument("-c", "--config")
     routes_p.add_argument("-p", "--project", action="append")
 
+    metrics_p = sub.add_parser("metrics", help="coupling metrics: per-file fan-in/fan-out and per-layer instability")
+    metrics_p.add_argument("-c", "--config")
+    metrics_p.add_argument("-p", "--project", action="append")
+    metrics_p.add_argument("--top", type=int, default=10, help="how many worst-offender files to show per metric")
+
+    watch_p = sub.add_parser("watch", help="rescan whenever a file under the project root changes; Ctrl-C to stop")
+    watch_p.add_argument("-c", "--config")
+    watch_p.add_argument("-p", "--project", action="append")
+    watch_p.add_argument("--interval", type=float, default=1.0, help="seconds between change checks (default 1)")
+
     sub.add_parser("warm", help="download and load every tree-sitter grammar now (for fresh machines and CI caches)")
 
     args = ap.parse_args(argv)
@@ -77,6 +133,8 @@ def main(argv: list[str] | None = None) -> int:
         if written:
             print(f"\narchfence: wrote {written}")
         return 0
+    if args.cmd == "watch":
+        return _watch(args)
     try:
         config = load_config(_find_config(args.config))
     except ConfigError as e:
@@ -120,6 +178,40 @@ def main(argv: list[str] | None = None) -> int:
             for path, r in sorted(rows, key=lambda x: (x[1].path, x[1].method)):
                 op = f"  op={r.operation_id}" if r.operation_id else ""
                 print(f"  {r.method:<8} {prefix + r.path:<50} {path}:{r.line}{op}")
+        return 0
+
+    if args.cmd == "metrics":
+        from .checks.metrics import couplings, instability
+
+        for g in graphs:
+            eff, aff = couplings(g)
+            print(f"[{g.project.name}] {len(g.files)} files")
+            worst_out = sorted(eff.items(), key=lambda kv: (-len(kv[1]), kv[0]))[: args.top]
+            print("  highest fan-out (Ce = files it depends on):")
+            for path, deps in worst_out:
+                print(f"    {len(deps):>4}  {path}  (Ca={len(aff[path])}, I={instability(len(deps), len(aff[path])):.2f})")
+            worst_in = sorted(aff.items(), key=lambda kv: (-len(kv[1]), kv[0]))[: args.top]
+            print("  highest fan-in (Ca = files that depend on it):")
+            for path, deps in worst_in:
+                print(f"    {len(deps):>4}  {path}  (Ce={len(eff[path])}, I={instability(len(eff[path]), len(deps)):.2f})")
+            # per-layer instability from cross-layer edges
+            lce: dict[str, set[str]] = {}
+            lca: dict[str, set[str]] = {}
+            for (a, b), edges in g.layer_edges().items():
+                if a == b:
+                    continue
+                lce.setdefault(a, set()).add(b)
+                lca.setdefault(b, set()).add(a)
+            layers = [l.name for l in g.project.layers]
+            print("  layers by instability (I = out-layers / (in-layers + out-layers)):")
+            rows = sorted(((instability(len(lce.get(n, ())), len(lca.get(n, ()))), n) for n in layers), key=lambda r: -r[0])
+            for inst, n in rows:
+                print(f"    {inst:.2f}  {n:<16} (Ce={len(lce.get(n, ()))}, Ca={len(lca.get(n, ()))})")
+            biggest = sorted(((t.methods, t.kind, t.name, p) for p, f in g.files.items() for t in f.types), key=lambda r: -r[0])[: args.top]
+            if biggest:
+                print("  largest types (methods):")
+                for methods, kind, tname, p in biggest:
+                    print(f"    {methods:>4}  {kind} {tname}  {p}")
         return 0
 
     if args.cmd == "unresolved":
@@ -167,6 +259,38 @@ def main(argv: list[str] | None = None) -> int:
         print(out)
     errors = [v for v in violations if v.severity == "error"]
     return 0 if (not errors or args.warn_only) else 1
+
+
+def _watch(args) -> int:
+    """Poll the tree and rescan on any change. Errors are reported and the loop keeps running."""
+    print(f"archfence: watching for changes every {args.interval:g}s; Ctrl-C to stop", flush=True)
+    last: dict[str, float] | None = None
+    try:
+        while True:
+            try:
+                config = load_config(_find_config(args.config))
+                projects = _select(config, getattr(args, "project", None))
+                if not projects:
+                    raise ConfigError(f"no project named {args.project}")
+                sig = _fs_signature(config, projects)
+            except ConfigError as e:
+                marker = {"<error>": hash(str(e))}
+                if marker != last:
+                    print(f"\n{time.strftime('%H:%M:%S')}  archfence: config error: {e}", file=sys.stderr, flush=True)
+                    last = marker
+                time.sleep(args.interval)
+                continue
+            if sig != last:
+                last = sig
+                print(f"\n{time.strftime('%H:%M:%S')}  ---", flush=True)
+                try:
+                    print(scan_pass(config, projects), flush=True)
+                except (EmptyProject, ValueError) as e:
+                    print(f"archfence: {e}", file=sys.stderr, flush=True)
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("\narchfence: stopped", flush=True)
+        return 0
 
 
 if __name__ == "__main__":

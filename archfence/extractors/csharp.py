@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import re
 
-from ..core.model import Import, Route, SourceFile
-from .base import Extractor, text, walk
+from ..core.model import Import, Route, SourceFile, TypeDef
+from .base import Extractor, count_members, text, walk
 
 _NS_TYPES = {"namespace_declaration", "file_scoped_namespace_declaration"}
 _HTTP_ATTRS = {"HttpGet": "GET", "HttpPost": "POST", "HttpPut": "PUT", "HttpPatch": "PATCH", "HttpDelete": "DELETE", "HttpHead": "HEAD", "HttpOptions": "OPTIONS"}
@@ -54,6 +54,7 @@ class CSharpExtractor(Extractor):
     def extract(self, rel_path: str, source: bytes) -> SourceFile:
         tree = self.parse(rel_path, source)
         sf = SourceFile(path=rel_path, language=self.language)
+        sf.parse_error = tree.root_node.has_error
         for ns in walk(tree.root_node, _NS_TYPES):
             q = _qualified(ns)
             if q is not None:
@@ -71,6 +72,7 @@ class CSharpExtractor(Extractor):
                 target = target[len("global::"):]
             sf.imports.append(Import(target=target, line=using.start_point[0] + 1, raw=text(using).strip()))
         sf.routes = self._routes(tree)
+        sf.types = self._types(tree)
         return sf
 
     def _routes(self, tree) -> list[Route]:
@@ -96,9 +98,18 @@ class CSharpExtractor(Extractor):
                         routes.append(Route(_HTTP_ATTRS[name], path, attr.start_point[0] + 1, op, handler))
         return routes
 
+    def _types(self, tree) -> list[TypeDef]:
+        out: list[TypeDef] = []
+        for cd in walk(tree.root_node, {"class_declaration", "struct_declaration", "record_declaration"}):
+            name = cd.child_by_field_name("name")
+            methods = count_members(cd, {"declaration_list"}, {"method_declaration", "constructor_declaration"})
+            out.append(TypeDef(text(name) if name is not None else "?", cd.type.split("_")[0], methods, cd.start_point[0] + 1))
+        return out
+
 
 def _join_route(prefix: str, template: str) -> str:
     if template.startswith("/") or template.startswith("~/"):
         return "/" + template.lstrip("~/")
     parts = [p for p in (prefix.strip("/"), template.strip("/")) if p]
     return "/" + "/".join(parts)
+
